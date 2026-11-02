@@ -1,0 +1,41 @@
+name: Nouveautés de la semaine
+
+on:
+  # Chaque lundi à 4 h UTC (5 h à Paris en hiver, 6 h en été), avant la notification de l'application
+  schedule:
+    - cron: "0 4 * * 1"
+  # Lancement à la main depuis l'onglet Actions
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nouveautes
+  cancel-in-progress: false
+
+jobs:
+  maj:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Mise à jour des commerces et lotissements de la Somme
+        run: node scripts/nouveautes.mjs
+
+      - name: Publication
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add etat publie
+          if git diff --cached --quiet; then
+            echo "Rien de nouveau"
+          else
+            git commit -m "Nouveautés du $(date -u +%Y-%m-%d)"
+            git push
+          fi
