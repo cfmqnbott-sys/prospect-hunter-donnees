@@ -32,6 +32,8 @@ const OVERPASS_URLS = [
 const BAN_URL = `https://adresse.data.gouv.fr/data/ban/adresses/latest/csv/adresses-${DEPARTEMENT}.csv.gz`;
 // Une rue nouvelle de moins de numéros est plutôt une maison isolée ou une rue renommée qu'un lotissement
 const MIN_LOTISSEMENT_ADRESSES = 3;
+// Au-delà, les rues nouvelles d'une même commune en une semaine viennent d'une republication de ses adresses
+const MAX_LOTISSEMENTS_PAR_COMMUNE = 8;
 // Les nouveautés restent publiées ce nombre de jours (l'application ne signale que les plus récentes)
 const PUBLIE_JOURS = 365;
 // En dessous, la réponse d'Overpass est sûrement tronquée (la Somme en compte plus d'un millier)
@@ -171,8 +173,20 @@ async function majLotissements() {
   let nouveaux = 0;
   if (existsSync(etatRues)) {
     const connues = new Set(gunzipSync(readFileSync(etatRues)).toString("utf8").split("\n"));
-    for (const [cle, rue] of rues) {
-      if (connues.has(cle) || rue.n < MIN_LOTISSEMENT_ADRESSES) continue;
+    const candidates = [...rues].filter(([cle, rue]) => !connues.has(cle) && rue.n >= MIN_LOTISSEMENT_ADRESSES);
+    // Une commune qui fait apparaître beaucoup de rues d'un coup, ou dont aucune rue n'était connue, vient d'être
+    // (re)publiée dans la BAN par sa mairie : ses rues anciennes ne sont pas des lotissements
+    const communesConnues = new Set([...connues].map((cle) => cle.split("|")[0]));
+    const parCommune = new Map();
+    for (const [, rue] of candidates) parCommune.set(rue.insee, (parCommune.get(rue.insee) ?? 0) + 1);
+    for (const [insee, n] of parCommune) {
+      if (n > MAX_LOTISSEMENTS_PAR_COMMUNE || !communesConnues.has(insee)) {
+        console.log(`Commune ${insee} : ${n} rues nouvelles d'un coup, republication de la BAN ignorée`);
+      }
+    }
+    for (const [cle, rue] of candidates) {
+      const n = parCommune.get(rue.insee);
+      if (n > MAX_LOTISSEMENTS_PAR_COMMUNE || !communesConnues.has(rue.insee)) continue;
       nouveaux++;
       lotissements.push([
         propre(cle), (rue.lat / rue.n).toFixed(6), (rue.lon / rue.n).toFixed(6),
